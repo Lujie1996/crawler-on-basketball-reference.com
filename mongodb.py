@@ -11,14 +11,18 @@ class MongoDB:
     def close_conn(self):
         self.conn.close()
 
-    def write_per_game_data(self, name, table_head, table_content):
-        for row in table_content:
-            document = '{\"name\":\"' + name + '\",'
-            for index in range(0,len(table_head)):
-                document += ('\"' + table_head[index] + '\":\"' + row[index] + '\"')
-                if index < len(table_head) - 1:
+    def add_rows_to_table(self, table, head, content):
+        target_table = self.db.get_collection(str(table))
+        for row in content:
+            document = "{"
+            for index in range(0, len(head)):
+                if '.' in head[index]:
+                    head[index] = head[index].replace('.', '')
+                # '.' can't be written to MongoDB
+                document += ('\"' + head[index] + '\":\"' + row[index] + '\"')
+                if index < len(head) - 1:
                     document += ','
             document += '}'
-            value = json.loads(document)
-            self.db.per_game.insert(value)
-        print(name + '\'s Per Game data added to DB (' + str(len(table_head)) + 'rows)')
+            json_doc = json.loads(document)
+            target_table.insert(json_doc)
+        print(table + ' added to DB (' + str(len(content)) + ' rows)')
