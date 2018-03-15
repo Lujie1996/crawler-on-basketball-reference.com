@@ -3,22 +3,26 @@ import os
 import requests
 import mongodb
 import logging
+import threading
 
 db = mongodb.MongoDB('localhost', 27017)
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+log_file = "./logger.log"
+logging.basicConfig(filename=log_file, level=logging.DEBUG)
 
 
 def get_html_code(url):
     headers = {
+        'Connection': 'close',
         'User-Agent': 'MMozilla/5.0 (Windows NT 6.1; WOW64; rv:31.0) Gecko/20100101 Firefox/31.0'
     }
-
-    r = requests.get(url, headers=headers)
-    r.encoding = 'UTF-8'
-    page = r.text
-    return page
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        r.encoding = 'UTF-8'
+        page = r.text
+        return page
+    except:
+        logging.exception(e)
+        return False
 
 
 def parse_table(table):
@@ -55,34 +59,38 @@ def add_col_of_name(name, table_head, table_content):
 
 
 def get_from_players_homepage(url):
-    page = get_html_code(url)
-    soup = BeautifulSoup(page, 'lxml')
-    assert soup is not None
-    target_tables = ["all_per_game", "all_totals", "all_per_minute", "all_per_poss",
-                     "all_advanced", "all_shooting", "all_advanced_pbp", "all_playoffs_per_game",
-                     "all_playoffs_totals", "all_playoffs_per_minute", "all_playoffs_per_poss",
-                     "all_playoffs_advanced", "all_playoffs_shooting", "all_play_offs_advanced_pbp",
-                     "all_all_star", "all_all_salaries"]
-    name = soup.find(id='info').find(itemprop='name').text
-    print(name + "'s web page is ready...")
-    table_wrappers = soup.select(".table_wrapper")
-    for table_wrapper in table_wrappers:
-        assert table_wrapper is not None
-        if table_wrapper['id'] not in target_tables:
-            continue
-        table_name = table_wrapper['id'][4:]
-        comments = table_wrapper.find(text=lambda text: isinstance(text, Comment))
-        if comments is not None:
-            table_wrapper_soup = BeautifulSoup(comments, 'lxml')
-            table = table_wrapper_soup.select("table")[0]
-        else:
-            table = table_wrapper.select("table")[0]
-        table_head, table_content = parse_table(table)
-        add_col_of_name(name, table_head, table_content)
-        print("#" + str(table_wrappers.index(table_wrapper)) + ": ", end="")
-        db.add_rows_to_table(table_name, table_head, table_content)
-    print("He is OK in DB!")
-    print("------------------------------------------------------")
+    try:
+        page = get_html_code(url)
+    except:
+        print("URL not accessible: " + url)
+        logging.warning(url)
+    else:
+        soup = BeautifulSoup(page, 'lxml')
+        assert soup is not None
+        target_tables = ["all_per_game", "all_totals", "all_per_minute", "all_per_poss",
+                         "all_advanced", "all_shooting", "all_advanced_pbp", "all_playoffs_per_game",
+                         "all_playoffs_totals", "all_playoffs_per_minute", "all_playoffs_per_poss",
+                         "all_playoffs_advanced", "all_playoffs_shooting", "all_play_offs_advanced_pbp",
+                         "all_all_star", "all_all_salaries"]
+        name = soup.find(id='info').find(itemprop='name').text
+        # print(name + "'s web page is ready...")
+        table_wrappers = soup.select(".table_wrapper")
+        for table_wrapper in table_wrappers:
+            assert table_wrapper is not None
+            if table_wrapper['id'] not in target_tables:
+                continue
+            table_name = table_wrapper['id'][4:]
+            comments = table_wrapper.find(text=lambda text: isinstance(text, Comment))
+            if comments is not None:
+                table_wrapper_soup = BeautifulSoup(comments, 'lxml')
+                table = table_wrapper_soup.select("table")[0]
+            else:
+                table = table_wrapper.select("table")[0]
+            table_head, table_content = parse_table(table)
+            add_col_of_name(name, table_head, table_content)
+            # print("#" + str(table_wrappers.index(table_wrapper)) + ": ", end="")
+            db.add_rows_to_table(table_name, table_head, table_content)
+
 
 
 def get_player_list(url):
@@ -90,7 +98,7 @@ def get_player_list(url):
     alpha_list = list()
     player_list = list()
     if not os.path.exists('player_urls.txt'):
-        print("No local file. Crawling from internet...")
+        print("Crawling from internet...")
         file = open('player_urls.txt', 'w', encoding="utf-8")
         for index in range(0, 26):
             char = chr(ord('a') + index)
@@ -118,11 +126,41 @@ def get_player_list(url):
     return player_list
 
 
+def add_player_info_to_db_from_players_list(urls, no_of_this_thread):
+    number_of_error = 0
+    for url in urls:
+        index = urls.index(url)
+        url = url.replace("\n", "")
+        ratio = (1 + index) / len(urls) * 100
+        ratio = round(ratio, 2)
+        try:
+            get_from_players_homepage(url)
+        except Exception as e:
+            logging.exception(e)
+            number_of_error += 1
+        print("Thread #" + str(no_of_this_thread) + ": " + str(index + 1) + "/" + str(len(urls)) +
+              " (" + str(ratio) + "%) with " + str(number_of_error) + " error")
+
+
+def multi_threads_run(number_of_threads, player_list):
+    threads = []
+    number_of_urls_per_thread = len(player_list) / number_of_threads
+    for index in range(number_of_threads):
+        low = index * number_of_urls_per_thread
+        if index == number_of_threads:
+            high = len(player_list)
+        else:
+            high = (index + 1) * number_of_urls_per_thread
+        urls = player_list[int(low): int(high)]
+        threads.append(threading.Thread(target=add_player_info_to_db_from_players_list, args=(urls, index)))
+    for thread in threads:
+        thread.start()
+    thread.join()
+
+
 if __name__ == '__main__':
     url = 'https://www.basketball-reference.com/players/'
     player_list = get_player_list(url)
     assert player_list is not None
-    for player_homepage in player_list:
-        player_homepage = player_homepage.replace("\n", "")
-        print("Now crawling individual player_homepage at " + player_homepage)
-        get_from_players_homepage(player_homepage)
+    print("Number of players: " + str(len(player_list)))
+    multi_threads_run(10, player_list)

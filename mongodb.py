@@ -25,4 +25,4 @@ class MongoDB:
             document += '}'
             json_doc = json.loads(document)
             target_table.insert(json_doc)
-        print(table + ' added to DB (' + str(len(content)) + ' rows)')
+        # print(table + ' added to DB (' + str(len(content)) + ' rows)')
