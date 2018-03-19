@@ -16,11 +16,11 @@ def get_html_code(url):
         'User-Agent': 'MMozilla/5.0 (Windows NT 6.1; WOW64; rv:31.0) Gecko/20100101 Firefox/31.0'
     }
     try:
-        r = requests.get(url, headers=headers, timeout=10)
+        r = requests.get(url, headers=headers, timeout=30)
         r.encoding = 'UTF-8'
         page = r.text
         return page
-    except:
+    except Exception as e:
         logging.exception(e)
         return False
 
@@ -61,7 +61,7 @@ def add_col_of_name(name, table_head, table_content):
 def get_from_players_homepage(url):
     try:
         page = get_html_code(url)
-    except:
+    except Exception as e:
         print("URL not accessible: " + url)
         logging.warning(url)
     else:
@@ -90,7 +90,6 @@ def get_from_players_homepage(url):
             add_col_of_name(name, table_head, table_content)
             # print("#" + str(table_wrappers.index(table_wrapper)) + ": ", end="")
             db.add_rows_to_table(table_name, table_head, table_content)
-
 
 
 def get_player_list(url):
@@ -163,4 +162,4 @@ if __name__ == '__main__':
     player_list = get_player_list(url)
     assert player_list is not None
     print("Number of players: " + str(len(player_list)))
-    multi_threads_run(10, player_list)
+    multi_threads_run(1, player_list)
